@@ -4,18 +4,17 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-MAPPING_PATH = 'data/plait1.csv'
+PLAIT_PATH = 'data/plait.csv'
 INPUT_PATH = 'data/input.csv'
-OUTPUT_PATH = 'data/'
-DATA_COL_START = 3
-REMOVEABLE_CHARS = ['%', '(1)', '(2)', '(3)']
-INPUT_DATA_START = 101
-LUM_START = 101
-OD_START = 48
-SAMPLES = 49
-GRAPH_NAME={'od':'OD','lum':'LUM','lum_div_od':'LUM/OD'}
-GRAPH_YLABEL={'od':'OD','lum':'LUM (RLU)','lum_div_od':'LUM/OD'}
-HOURS = [i for i in range(49)]
+OUTPUT_PATH = 'output/'
+DATA_COL_START = 3  # col to start in input
+REMOVEABLE_CHARS = ['%']  # chars to remove in plait mapping
+LUM_START = 101  # row that the lum section start
+OD_START = 48  # row that the od section start
+SAMPLES = 49  # amount of samples in the input at each section
+GRAPH_NAME = {'od': 'OD', 'lum': 'LUM', 'lum_div_od': 'LUM/OD'}  # title of graph for each graph
+GRAPH_YLABEL = {'od': 'OD', 'lum': 'LUM (RLU)', 'lum_div_od': 'LUM/OD'}  # ylBEL OF each graph
+HOURS = [i for i in range(SAMPLES)]
 
 
 def create_cell_to_idx():
@@ -81,6 +80,14 @@ def get_averages(array: np.array, maper: Dict[str, List[int]]) -> Dict[str, List
     return dict(averages)
 
 
+def get_table_from_dict(avreges: Dict[str, List[float]]) -> pd.DataFrame:
+    res = []
+    for key, value in avreges.items():
+        temp = [key] + value
+        res.append(temp)
+    return pd.DataFrame(np.array(res).T)
+
+
 def norm_averages(avreges: Dict[str, List[float]], lb_avg: np.array) -> Dict[str, List[float]]:
     result = dict()
     for key, value in avreges.items():
@@ -88,11 +95,11 @@ def norm_averages(avreges: Dict[str, List[float]], lb_avg: np.array) -> Dict[str
     return result
 
 
-def make_graphs(avreges: Dict[str, List[float]], output_path: str, name:str):
-    x = np.array(HOURS)/2
+def make_graphs(avreges: Dict[str, List[float]], output_path: str, name: str):
+    x = np.array(HOURS) / 2
     x = x.tolist()
     for key, value in avreges.items():
-        plt.plot(x,value, label=key)
+        plt.plot(x, value, label=key)
         plt.ylabel(GRAPH_YLABEL[name])
         plt.xlabel('time(h)')
     plt.title(GRAPH_NAME[name])
@@ -103,21 +110,26 @@ def make_graphs(avreges: Dict[str, List[float]], output_path: str, name:str):
 
 def pipline(maper: Dict[str, List[int]], input: np.array, output_path: str, name: str):
     averages = get_averages(input, maper)
+    avg_table = get_table_from_dict(averages)
     lb_avg = get_lb_avg(input, maper)
+    lb_table = pd.DataFrame(np.array(['LB_AVG'] + lb_avg.tolist()).T)
     norm_avgs = norm_averages(averages, lb_avg)
+    norm_table = get_table_from_dict(norm_avgs)
+    s_table = pd.concat([avg_table,lb_table,norm_table],axis=1)
+    s_table.to_csv(output_path+name+'.csv')
     make_graphs(norm_avgs, output_path + name + '.png',name)
 
 
 def run_all(map_path: str, input_path: str, output_path: str):
     maper = generate_map(map_path)
     df = pd.read_csv(input_path).values
-    od_mtx = df[OD_START:OD_START + SAMPLES,DATA_COL_START:].astype(float)
-    lum_mtx = df[LUM_START:LUM_START + SAMPLES,DATA_COL_START:].astype(float)
-    div_mtx = lum_mtx/od_mtx
+    od_mtx = df[OD_START:OD_START + SAMPLES, DATA_COL_START:].astype(float)
+    lum_mtx = df[LUM_START:LUM_START + SAMPLES, DATA_COL_START:].astype(float)
+    div_mtx = lum_mtx / od_mtx
     pipline(maper, od_mtx, output_path, 'od')
     pipline(maper, lum_mtx, output_path, 'lum')
     pipline(maper, div_mtx, output_path, 'lum_div_od')
 
 
 if __name__ == '__main__':
-    run_all(MAPPING_PATH, INPUT_PATH, OUTPUT_PATH)
+    run_all(PLAIT_PATH, INPUT_PATH, OUTPUT_PATH)
