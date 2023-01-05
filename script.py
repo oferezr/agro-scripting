@@ -1,10 +1,13 @@
+import itertools
+import os.path
+import sys
 from collections import defaultdict
 from typing import Dict, List
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-PLAIT_PATH = 'data/plait.csv'
+PLAIT_PATH = 'data/plait2.csv'
 INPUT_PATH = 'data/input.csv'
 OUTPUT_PATH = 'output/'
 DATA_COL_START = 3  # col to start in input
@@ -12,8 +15,10 @@ REMOVEABLE_CHARS = ['%']  # chars to remove in plait mapping
 LUM_START = 101  # row that the lum section start
 OD_START = 48  # row that the od section start
 SAMPLES = 49  # amount of samples in the input at each section
-GRAPH_NAME = {'od': 'OD', 'lum': 'LUM', 'lum_div_od': 'LUM/OD'}  # title of graph for each graph
-GRAPH_YLABEL = {'od': 'OD', 'lum': 'LUM (RLU)', 'lum_div_od': 'LUM/OD'}  # ylBEL OF each graph
+GRAPH_NAME = {'od': 'OD', 'lum': 'LUM',
+              'lum_div_od': 'LUM/OD'}  # title of graph for each graph
+GRAPH_YLABEL = {'od': 'OD', 'lum': 'LUM (RLU)',
+                'lum_div_od': 'LUM/OD'}  # ylBEL OF each graph
 HOURS = [i for i in range(SAMPLES)]
 
 
@@ -68,15 +73,42 @@ def get_lb_avg(array: np.array, maper: Dict[str, List[int]]):
     return np.mean(updated_lb_mtx, axis=1)
 
 
-def get_averages(array: np.array, maper: Dict[str, List[int]]) -> Dict[str, List[float]]:
+def get_averages(array: np.array, maper: Dict[str, List[int]]) -> Dict[
+    str, List[float]]:
+    error_map = defaultdict(list)
+    problematic_vals = set()
+    for key in maper.keys():
+        if key == 'LB':
+            continue
+        if '(1)' in key or '(2)' in key or '(3)' in key:
+            t = key.replace('(1)_', '').replace('(2)_', '').replace('(3)_', '')
+            error_map[t].append(key)
+            problematic_vals.add(key)
     averages = defaultdict(list)
     for i in range(array.shape[0]):
+        iteration = defaultdict(list)
         for type in maper.keys():
             if type == 'LB':
                 continue
             ar = array[i, maper[type]]
             temp = np.mean(ar)
-            averages[type].append(temp)
+            if type in problematic_vals:
+                # Check if there is a result that is bigger then 1 then the mean
+                if (np.abs(ar - temp) > 1).any():
+                    continue
+                iteration[type]+=ar.tolist()
+            else:
+                averages[type].append(temp)
+        for key, value in error_map.items():
+            ttemp =list(itertools.chain(*[iteration[i] for i in value if i in iteration]))
+            if len(ttemp) > 0:
+                m = np.mean(np.array(ttemp))
+                averages[key].append(m)
+            else:
+                averages[key].append(0)
+                print(
+                    f'Error: _stdv for each treatment. Key:{key}, at iteration {i}',
+                    file=sys.stderr)
     return dict(averages)
 
 
@@ -88,7 +120,8 @@ def get_table_from_dict(avreges: Dict[str, List[float]]) -> pd.DataFrame:
     return pd.DataFrame(np.array(res).T)
 
 
-def norm_averages(avreges: Dict[str, List[float]], lb_avg: np.array) -> Dict[str, List[float]]:
+def norm_averages(avreges: Dict[str, List[float]], lb_avg: np.array) -> Dict[
+    str, List[float]]:
     result = dict()
     for key, value in avreges.items():
         result[key] = (np.array(value) - lb_avg).tolist()
@@ -108,16 +141,19 @@ def make_graphs(avreges: Dict[str, List[float]], output_path: str, name: str):
     plt.close()
 
 
-def pipline(maper: Dict[str, List[int]], input: np.array, output_path: str, name: str):
+def pipline(maper: Dict[str, List[int]], input: np.array, output_path: str,
+            name: str):
     averages = get_averages(input, maper)
     avg_table = get_table_from_dict(averages)
     lb_avg = get_lb_avg(input, maper)
     lb_table = pd.DataFrame(np.array(['LB_AVG'] + lb_avg.tolist()).T)
     norm_avgs = norm_averages(averages, lb_avg)
     norm_table = get_table_from_dict(norm_avgs)
-    s_table = pd.concat([avg_table,lb_table,norm_table],axis=1)
-    s_table.to_csv(output_path+name+'.csv')
-    make_graphs(norm_avgs, output_path + name + '.png',name)
+    s_table = pd.concat([avg_table, lb_table, norm_table], axis=1)
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
+    s_table.to_csv(output_path + name + '.csv')
+    make_graphs(norm_avgs, output_path + name + '.png', name)
 
 
 def run_all(map_path: str, input_path: str, output_path: str):
